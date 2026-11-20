@@ -1,64 +1,70 @@
 # EscanerECO
 
-**Lector universal de gafetes** para el Ecosistema ECO de Embotelladora de Colima. Prototipo funcional pendiente de validación con gafetes reales en iPhone y Android.
+**Escáner de gafetes y códigos de barras reutilizable** para las aplicaciones del Ecosistema ECO de Embotelladora de Colima.
 
-## Funciones
+**Versión:** 1.1.0 · **Fecha:** 20 de noviembre de 2026 · **Etapa:** prototipo funcional pendiente de validación operativa.
 
-- Abre la cámara del teléfono o computadora desde una página HTTPS.
-- Lee códigos **Code 128, Code 39, Code 93, Codabar, ITF, EAN-13, EAN-8, UPC-A, UPC-E y QR**.
-- Identifica el texto de la nómina; permite captura manual y copia.
-- Puede devolver la nómina a la aplicación web que abrió el escáner, mediante `window.postMessage` y un canal por sesión.
-- Funciona también en modo independiente (sin registrar asistencia ni acceder a ninguna base).
-- Utiliza el logotipo oficial proporcionado para ECO, incluido en `index.html`.
+## Acceso
 
-## Publicar en GitHub Pages
-
-En el repositorio: **Settings → Pages → Build and deployment → Deploy from a branch → `main` → `/(root)` → Save**.
-La URL prevista para la página, una vez habilitada y publicada, es:
+La dirección de GitHub Pages para este repositorio, cuando esté publicada y disponible, es:
 
 `https://arqlal-byte.github.io/EscanerECO/`
 
-El archivo `index.html` solo no activa automáticamente GitHub Pages. **No se considera publicada hasta comprobar que la URL responde correctamente.**
+Desde una aplicación integrada, el personal entra con el botón **Abrir EscanerECO**, no mediante un enlace copiado manualmente. El lector muestra un botón **Regresar a la aplicación**.
 
-## Integrar con Inducción ECO v0.1.4
+## Capacidades
 
-1. Publica y abre primero el escáner con HTTPS y verifica el permiso de cámara.
-2. En las propiedades del proyecto Apps Script de Inducción ECO establece `ECO_LECTOR_URL` con la URL HTTPS real de GitHub Pages.
-3. La versión 0.1.4 de `Code.gs` e `Index.html` debe estar instalada y desplegada por el propietario del proyecto. **Este repositorio no despliega Apps Script ni modifica su configuración actual.**
-4. En **Administración → Asistencia**, abre una sesión y pulsa **Abrir lector**. Se abre una pestaña vinculada que devuelve lecturas al panel.
-5. La aplicación valida inscripción, sesión y duplicados, y escribe en su Sheet. El lector por sí solo no escribe registros.
+- Escanea códigos **Code 128, Code 39, Code 93, Codabar, ITF, EAN, UPC y QR** con la cámara del dispositivo.
+- Captura o copia manualmente una nómina. Conserva ceros iniciales.
+- Comparte **solo el contenido del código leído** con la ventana que abrió el lector, por `window.postMessage` y un canal aleatorio por apertura.
+- Recibe del sistema destino la **confirmación de registro**, incluyendo los duplicados.
+- Muestra un botón para regresar a la aplicación de origen. Para **Inducción ECO**, el enlace de recuperación incluye solo los identificadores de convocatoria y sesión, nunca números de nómina.
+- En iPhone o Android, si el navegador impide la comunicación entre pestañas, conserva temporalmente en pantalla las **lecturas sin confirmar**, permite copiarlas y regresar a la sesión. La aplicación destino decide si las registra.
+- En modo independiente, permite leer y copiar, sin conectarse a RH o a Google Sheets.
+- Utiliza el logotipo oficial proporcionado; no lo genera ni lo sustituye.
 
-## Contrato de integración para otras aplicaciones
+## Integración con Inducción ECO
 
-La app origen abre la página añadiendo un fragmento URL:
+Preparada en **Inducción ECO 0.1.5** (Code.gs e Index.html completos disponibles en el expediente de la aplicación).
 
-`#channel=<IDENTIFICADOR_ALEATORIO>&returnOrigin=<ORIGEN_HTTPS_DE_LA_APP>`
+1. Instalar **ambos archivos 0.1.5** en el proyecto Apps Script de Inducción ECO; no basta con actualizar GitHub. Requiere guardar y publicar una nueva versión del despliegue web.
+2. No se necesita una nueva propiedad: si `ECO_LECTOR_URL` no está definida, la versión 0.1.5 utiliza automáticamente la URL anterior. Si existe, solo se admite la ruta oficial del repositorio EscanerECO.
+3. En **Administración → Asistencia**, seleccionar convocatoria, crear y **abrir la sesión**, luego elegir **Ver asistencia → Abrir EscanerECO**.
+4. Escanear. La lectura solo se marca como registrada cuando la aplicación confirma que Google Apps Script la guardó en la pestaña `Asistencias`. La misma nómina no se duplica dentro de una sesión.
+5. Utilizar **Regresar a Inducción ECO** para volver al mismo control. Si el navegador no retuvo la ventana, el lector abre un enlace de regreso con la convocatoria y sesión identificadas.
+6. Si aparecen lecturas sin confirmar, presionar **Copiar nóminas pendientes** y, al regresar, elegir **Pegar lecturas pendientes**. Esas recuperaciones se registran como `MANUAL` y vuelven a validarse contra los inscritos en la sesión.
 
-Debe crear un canal aleatorio nuevo por apertura y conservar una referencia a la ventana abierta (`window.open`). La página lectora envía a `window.opener` este mensaje:
+### Contrato genérico del lector
 
-```json
-{"type":"ECO_LECTURA_GAFETE","channel":"<IDENTIFICADOR_ALEATORIO>","nomina":"001234","source":"EscanerECO","version":"1.0.0","method":"CAMARA"}
-```
+El sistema de origen abre la URL del escáner con parámetros en el *fragmento* `#`:
 
-La aplicación debe comprobar **`event.origin` (el origen exacto de GitHub Pages), `event.source` (ventana abierta) y `channel`**. No debe registrar automáticamente sin verificar permisos, sesión, inscripción y duplicados. Tras registrar o rechazar, puede responder por `postMessage`:
+- `channel`: identificador aleatorio por apertura, no una contraseña.
+- `returnOrigin`: origen HTTPS exacto desde el que la aplicación recibirá `postMessage`.
+- `returnUrl`: enlace HTTPS opcional para regresar a un **despliegue Apps Script**; está validado con dominio y ruta permitidos.
+- `app`: nombre corto que se muestra en el botón de regreso.
 
-```json
-{"type":"ECO_RESPUESTA_ASISTENCIA","channel":"<IDENTIFICADOR_ALEATORIO>","nomina":"001234","ok":true,"texto":"Registro confirmado"}
-```
+El lector transmite `{ type: 'ECO_LECTURA_GAFETE', channel, nomina, source: 'EscanerECO', method }`. La aplicación debe confirmar mediante `{ type: 'ECO_RESPUESTA_ASISTENCIA', channel, nomina, ok, texto }` y verificar el origen de los mensajes.
 
-Por defecto, el lector admite como aplicación origen únicamente URLs HTTPS de `script.google.com` y `*.googleusercontent.com`. Otros orígenes deben autorizarse explícitamente en el arreglo `ADDITIONAL_APPROVED_ORIGINS` de `index.html`, tras evaluación de seguridad. El parámetro `returnOrigin` **no concede autorización de acceso** a ninguna base.
+**Cada aplicación es responsable** de autenticar al operador, validar permisos y contexto, verificar la nómina y registrar la operación. Este repositorio **no tiene acceso a Apps Script, ni a la base de trabajadores, ni a hojas de cálculo**.
 
-### Limitaciones
+## Seguridad y privacidad
 
-- La transmisión entre pestañas es una integración a verificar en iPhone y Android; si el navegador rompe `window.opener`, usar copia/captura manual.
-- No envía imágenes ni datos a GitHub. La biblioteca `html5-qrcode` v2.3.8 se carga desde jsDelivr, así que el acceso a Internet es necesario.
-- Un código de barras identifica la nómina, **no acredita por sí mismo la identidad física** de la persona.
-- El sitio público no lleva contraseñas, credenciales, tokens ni IDs de bases de datos.
-- La configuración visual (`doGet`, viewport, barra de Google) de las otras aplicaciones no cambia.
+- Sin API keys, contraseñas, tokens de servicio ni identificadores internos de bases de datos en GitHub.
+- La imagen de cámara se procesa localmente en el navegador; el repositorio no recibe fotografías ni almacena videos o nóminas en un servidor.
+- El intercambio entre ventanas usa un canal por apertura y origen explícito. No aceptar mensajes de orígenes no verificados.
+- El retorno a la aplicación solo acepta enlaces `https://script.google.com/.../exec` con sesión y convocatoria de formato válido. No hay redirección a otros dominios.
+- El número de nómina **no equivale a autenticación de identidad física**; el encargado debe verificar el gafete y controlar el acceso administrativo.
+- Si la app pierde contacto, **una lectura no confirmada no cuenta como asistencia**. Debe revisarse la lista antes de regresar.
+- La biblioteca `html5-qrcode` versión 2.3.8 se importa desde jsDelivr: se requiere Internet; la compatibilidad de cámara y permisos depende del navegador.
+
+## Alcance de verificación
+
+- **Comprobado:** sintaxis del JavaScript; comportamiento simulado de mensaje y confirmación; restricción de enlaces de regreso; captura de pendientes; aspecto de la interfaz en emulación de teléfono; lógica local de registro en lote y recuperación de sesión.
+- **No comprobado aún:** lectura física de gafete, comunicación de ventanas reales en iPhone/Android, implementación operativa de Apps Script ni escritura real desde el despliegue.
 
 ## Versiones y recuperación
 
-- **1.0.0 (2026-11-19)**: primer lector compartido (separado del prototipo de asistencia de Inducción ECO 0.1.4).
-- Para revertir, utilizar el historial de commits de GitHub. No se modifica ningún Apps Script operativo al actualizar este repositorio.
+- **v1.0.0:** escáner universal inicial. Recuperable en el historial de commits de GitHub y el respaldo documental en Drive.
+- **v1.1.0:** regreso a aplicación de origen, contexto de sesión, lecturas pendientes, integración de Inducción ECO 0.1.5.
 
-La validación final corresponde al usuario después de probar la cámara y el flujo de lectura con un gafete real.
+No cambiar el código de otras aplicaciones por actualizar el escáner. Integrarlas por separado y con pruebas de compatibilidad.
