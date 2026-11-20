@@ -78,7 +78,7 @@
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 'use strict';
-/* Escáner ECO v1.1.0 — componente genérico con retorno seguro a Apps Script. */
+/* Escáner ECO v1.1.1 — componente genérico con retorno seguro a Apps Script. */
 (function () {
   const $ = id => document.getElementById(id);
   const hash = new URLSearchParams(location.hash.substring(1));
@@ -91,9 +91,12 @@
       const u=new URL(raw);
       if(u.origin!=='https://script.google.com'||u.username||u.password||u.hash||
         !/^\/(?:macros\/s|a\/macros\/[^/]+\/s)\/[A-Za-z0-9_-]+\/exec$/.test(u.pathname))return '';
+      // Para Inducción ECO basta la convocatoria; para módulos antiguos, se acepta
+      // eco_sesion únicamente si trae un identificador de sesión válido.
+      const sesion=u.searchParams.get('eco_sesion');
       if(u.searchParams.get('vista')!=='admin'||
          !/^CONV-[0-9a-f-]{36}$/i.test(u.searchParams.get('eco_conv')||'')||
-         !/^SES-[0-9a-f-]{36}$/i.test(u.searchParams.get('eco_sesion')||''))return '';
+         (sesion!==null&&!/^SES-[0-9a-f-]{36}$/i.test(sesion)))return '';
       return u.href;
     }catch(_){return '';}
   }
@@ -144,7 +147,7 @@
       return;
     }
     waiting=true;status('Enviando lectura para validación…');result('Esperando respuesta de la aplicación vinculada.');
-    try { window.opener.postMessage({type:'ECO_LECTURA_GAFETE',channel:channel,nomina:nomina,source:'EscanerECO',version:'1.1.0',method:method},returnOrigin); }
+    try { window.opener.postMessage({type:'ECO_LECTURA_GAFETE',channel:channel,nomina:nomina,source:'EscanerECO',version:'1.1.1',method:method},returnOrigin); }
     catch (_) { waiting=false;pendiente(nomina);status('No fue posible comunicarse con la aplicación. Copia las pendientes.','warn');return; }
     clearTimeout(ackTimer);
     ackTimer=setTimeout(()=>{if(waiting){waiting=false;pendiente(nomina);status('No llegó confirmación. Copia las nóminas pendientes y revisa el registro.','warn');result('Si el registro ya se realizó, la aplicación impedirá duplicados.');}},12000);
