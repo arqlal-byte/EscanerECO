@@ -144,7 +144,7 @@
       return;
     }
     waiting=true;status('Enviando lectura para validación…');result('Esperando respuesta de la aplicación vinculada.');
-    try { window.opener.postMessage({type:'ECO_LECTURA_GAFETE',channel:channel,nomina:nomina,source:'EscanerECO',version:'1.0.0',method:method},returnOrigin); }
+    try { window.opener.postMessage({type:'ECO_LECTURA_GAFETE',channel:channel,nomina:nomina,source:'EscanerECO',version:'1.1.0',method:method},returnOrigin); }
     catch (_) { waiting=false;pendiente(nomina);status('No fue posible comunicarse con la aplicación. Copia las pendientes.','warn');return; }
     clearTimeout(ackTimer);
     ackTimer=setTimeout(()=>{if(waiting){waiting=false;pendiente(nomina);status('No llegó confirmación. Copia las nóminas pendientes y revisa el registro.','warn');result('Si el registro ya se realizó, la aplicación impedirá duplicados.');}},12000);
