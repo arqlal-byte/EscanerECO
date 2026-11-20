@@ -41,6 +41,12 @@
   <h1>Escáner ECO</h1>
   <p>Lee el código de barras o QR de una credencial. El número de nómina se procesa en este dispositivo y puede devolverse a la aplicación que abrió el lector.</p>
   <div id="vinculo" class="tag" aria-live="polite">Comprobando vinculación…</div>
+  <section id="regreso" class="card" hidden>
+    <h2>Volver a la aplicación</h2>
+    <p id="regresoTexto" class="muted">Al regresar recuperarás la convocatoria y la sesión seleccionadas.</p>
+    <button id="volver" type="button" style="width:100%">← Regresar a la aplicación ECO</button>
+    <p class="muted" style="font-size:13px">Si tu navegador no conserva ambas pestañas, utiliza el enlace de regreso. Las lecturas sin confirmar deberán copiarse antes de salir.</p>
+  </section>
   <section class="card" aria-labelledby="titulo-camara">
     <h2 id="titulo-camara">Lector con cámara</h2>
     <div id="estado" class="status" role="status" aria-live="polite">Cámara apagada. Presiona «Iniciar cámara».</div>
@@ -52,6 +58,12 @@
     <div id="codigo" class="code" aria-live="polite">—</div>
     <div id="resultado" class="muted" role="status">Aún no hay lecturas.</div>
     <div class="row"><button id="copy" type="button" class="secondary" disabled>Copiar nómina</button><button id="retry" type="button" class="secondary" disabled>Reenviar lectura</button></div>
+  </section>
+  <section id="recuperacion" class="card" hidden>
+    <h2>Lecturas sin confirmar</h2>
+    <p class="muted">El navegador no pudo confirmar estos registros con la aplicación. Copia la lista y, al regresar, usa «Pegar lecturas pendientes» en Control de asistencia.</p>
+    <textarea id="listaPendientes" readonly style="width:100%;min-height:110px;resize:vertical;font:600 18px/1.5 monospace"></textarea>
+    <button id="copiarPendientes" type="button" style="width:100%">Copiar nóminas pendientes</button>
   </section>
   <section class="card" aria-labelledby="titulo-manual">
     <h2 id="titulo-manual">Captura manual</h2>
@@ -66,12 +78,26 @@
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 'use strict';
-/* Escáner ECO v1.0.0 — interfaz genérica; compatible con Inducción ECO v0.1.4. */
+/* Escáner ECO v1.1.0 — componente genérico con retorno seguro a Apps Script. */
 (function () {
   const $ = id => document.getElementById(id);
   const hash = new URLSearchParams(location.hash.substring(1));
   const channel = hash.get('channel') || '';
   const returnOrigin = hash.get('returnOrigin') || '';
+  const app = String(hash.get('app') || 'aplicación ECO').slice(0,60);
+  // Nunca navegar de vuelta a enlaces arbitrarios. El botón solo acepta despliegues Apps Script.
+  function validarRegreso(raw) {
+    try {
+      const u=new URL(raw);
+      if(u.origin!=='https://script.google.com'||u.username||u.password||u.hash||
+        !/^\/(?:macros\/s|a\/macros\/[^/]+\/s)\/[A-Za-z0-9_-]+\/exec$/.test(u.pathname))return '';
+      if(u.searchParams.get('vista')!=='admin'||
+         !/^CONV-[0-9a-f-]{36}$/i.test(u.searchParams.get('eco_conv')||'')||
+         !/^SES-[0-9a-f-]{36}$/i.test(u.searchParams.get('eco_sesion')||''))return '';
+      return u.href;
+    }catch(_){return '';}
+  }
+  const returnUrl=validarRegreso(hash.get('returnUrl')||'');
   // Ampliar SOLO cuando el equipo de Sistemas apruebe nuevos dominios de aplicaciones.
   const ADDITIONAL_APPROVED_ORIGINS = [];
   function approvedOrigin(origin) {
@@ -83,7 +109,14 @@
         host.endsWith('.googleusercontent.com') || ADDITIONAL_APPROVED_ORIGINS.includes(u.origin);
     } catch (_) { return false; }
   }
-  const linked = !!channel && channel.length <= 160 && approvedOrigin(returnOrigin) && !!window.opener;
+  const linked = !!channel && channel.length <= 160 && approvedOrigin(returnOrigin);
+  const pending = new Set();
+  function pendientesVisibles(){
+    const panel=$('recuperacion');panel.hidden=pending.size===0;
+    $('listaPendientes').value=[...pending].join('\n');
+  }
+  function pendiente(nom){if(linked){pending.add(nom);pendientesVisibles();}}
+  function confirmado(nom){pending.delete(nom);pendientesVisibles();}
   const ALLOWED = /^(?=.{1,25}$)[A-Z0-9][A-Z0-9-]*$/;
   const $state = $('estado'), $code = $('codigo'), $result = $('resultado');
   let scanner = null, running = false, busy = false, waiting = false;
@@ -100,22 +133,29 @@
     last=nomina;lastAt=now;lastMethod=method;
     $code.textContent=nomina;$('copy').disabled=false;$('retry').disabled=false;
     if (!linked || !window.opener || window.opener.closed) {
-      status('Lectura correcta. Copia la nómina para utilizarla en tu aplicación.','ok');
-      result('Modo independiente: no se ha enviado ningún dato a otra aplicación.');
+      if(linked){
+        pendiente(nomina);
+        status('Lectura correcta, pero la aplicación no confirmó el registro. Copia la lista de pendientes.','warn');
+        result('El navegador perdió la comunicación entre pestañas. No se registró automáticamente.');
+      }else{
+        status('Lectura correcta. Copia la nómina para utilizarla en tu aplicación.','ok');
+        result('Modo independiente: no se ha enviado ningún dato a otra aplicación.');
+      }
       return;
     }
     waiting=true;status('Enviando lectura para validación…');result('Esperando respuesta de la aplicación vinculada.');
     try { window.opener.postMessage({type:'ECO_LECTURA_GAFETE',channel:channel,nomina:nomina,source:'EscanerECO',version:'1.0.0',method:method},returnOrigin); }
-    catch (_) { waiting=false;status('No fue posible comunicarse con la aplicación. Copia la nómina.','warn');return; }
+    catch (_) { waiting=false;pendiente(nomina);status('No fue posible comunicarse con la aplicación. Copia las pendientes.','warn');return; }
     clearTimeout(ackTimer);
-    ackTimer=setTimeout(()=>{if(waiting){waiting=false;status('No llegó confirmación. Revisa la pestaña de la aplicación o copia la nómina.','warn');result('Si el registro sí se completó, la aplicación deberá impedir duplicados.');}},12000);
+    ackTimer=setTimeout(()=>{if(waiting){waiting=false;pendiente(nomina);status('No llegó confirmación. Copia las nóminas pendientes y revisa el registro.','warn');result('Si el registro ya se realizó, la aplicación impedirá duplicados.');}},12000);
   }
   window.addEventListener('message',event=>{
     if (!linked || event.source !== window.opener || event.origin !== returnOrigin) return;
     const data=event.data;
     if (!data || data.channel !== channel || data.type !== 'ECO_RESPUESTA_ASISTENCIA' || String(data.nomina||'') !== last) return;
     waiting=false;clearTimeout(ackTimer);
-    status(data.texto || (data.ok ? 'Registro confirmado.':'Lectura recibida, revisa el aviso.'),data.ok?'ok':'warn');
+    if(data.ok)confirmado(last);else pendiente(last);
+    status(data.texto || (data.ok ? 'Registro confirmado.':'Lectura no registrada.'),data.ok?'ok':'warn');
     result(data.ok ? 'La aplicación confirmó el registro.':'La aplicación respondió. Verifica el resultado.');
     if (data.ok && typeof navigator.vibrate === 'function') navigator.vibrate(110);
   });
@@ -147,7 +187,26 @@
   $('manual').addEventListener('submit',e=>{e.preventDefault();reading($('nomina').value,true,'MANUAL');});
   $('copy').addEventListener('click',async()=>{if(!last)return;try{await navigator.clipboard.writeText(last);status('Nómina copiada.','ok');}catch(_){status('No se pudo copiar automáticamente; mantén presionado el número para seleccionarlo.','warn');}});
   $('retry').addEventListener('click',()=>{if(last)reading(last,true,lastMethod);});
-  $('vinculo').textContent=linked ? 'Vinculado a una aplicación ECO' : 'Modo independiente · lectura local';
+  $('copiarPendientes').addEventListener('click',async()=>{
+    const texto=[...pending].join('\n');
+    if(!texto)return;
+    try{await navigator.clipboard.writeText(texto);status('Lista de nóminas copiada. Regresa a la sesión y pégala como lote.','ok');}
+    catch(_){$('listaPendientes').focus();$('listaPendientes').select();status('Copia el texto seleccionado y pégalo en Inducción ECO.','warn');}
+  });
+  if(returnUrl){
+    $('regreso').hidden=false;
+    $('volver').textContent='← Regresar a '+app;
+    $('regresoTexto').textContent='Volver a '+app+' con la misma sesión seleccionada.';
+  }
+  $('volver').addEventListener('click',()=>{
+    if(pending.size && !window.confirm('Hay '+pending.size+' lecturas sin confirmar. Cópialas antes de regresar para no perderlas. ¿Regresar de todos modos?'))return;
+    try{
+      if(window.opener && !window.opener.closed){window.opener.focus();window.close();if(window.closed)return;}
+    }catch(_){}
+    if(returnUrl)location.assign(returnUrl);
+    else status('No hay dirección de regreso validada. Vuelve a la pestaña anterior.','warn');
+  });
+  $('vinculo').textContent=linked ? ('Vinculado a '+app) : 'Modo independiente · lectura local';
   if (!linked) status('Modo independiente. Puedes escanear y copiar el número de nómina.');
   if (location.hash) { try{history.replaceState(null,'',location.pathname+location.search);}catch(_){} }
   window.addEventListener('pagehide',()=>{if(scanner && running)scanner.stop().catch(()=>{});});
