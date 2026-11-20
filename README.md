@@ -68,3 +68,10 @@ El lector transmite `{ type: 'ECO_LECTURA_GAFETE', channel, nomina, source: 'Esc
 - **v1.1.0:** regreso a aplicación de origen, contexto de sesión, lecturas pendientes, integración de Inducción ECO 0.1.5.
 
 No cambiar el código de otras aplicaciones por actualizar el escáner. Integrarlas por separado y con pruebas de compatibilidad.
+
+
+## Actualización 1.1.1 (2026-11-20)
+
+- Para Inducción ECO 0.1.6 la dirección de regreso conserva únicamente `eco_conv`.
+- `eco_sesion` sigue siendo aceptado opcionalmente para integraciones anteriores si tiene identificador válido.
+- Sin cambios en cámara, formatos de lectura, privacidad o comprobación de origen.
