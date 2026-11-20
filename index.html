@@ -20,6 +20,27 @@
     .status.ok{background:#e3f6eb;color:#16613c}.status.warn{background:#fff5df;color:#744c0a}.status.error{background:#fceceb;color:#9e2c28}
     #reader{background:#f9fbfc;min-height:92px;width:100%;overflow:hidden;border:1px dashed #c9d1d9;border-radius:11px}
     #reader video{width:100%!important;max-height:430px;object-fit:contain}
+    .camera-stage{position:relative;isolation:isolate;border-radius:11px;overflow:hidden;min-height:250px}
+    .camera-stage #reader{min-height:250px}
+    .camera-feedback{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+      padding:18px;background:rgba(9,23,31,.80);color:#fff;pointer-events:none;visibility:hidden;opacity:0;
+      transition:opacity .16s ease,visibility .16s ease;text-align:center}
+    .camera-feedback.show{visibility:visible;opacity:1}
+    .camera-feedback-inner{width:min(100%,350px);display:flex;flex-direction:column;align-items:center;gap:5px}
+    .camera-feedback-icon{width:66px;height:66px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+      font-size:45px;font-weight:900;line-height:1;border:3px solid currentColor;margin-bottom:3px}
+    .camera-feedback-title{font-size:clamp(19px,5.6vw,27px);font-weight:850;line-height:1.13}
+    .camera-feedback-nomina{font-size:clamp(24px,6.6vw,34px);font-weight:850;letter-spacing:.035em;overflow-wrap:anywhere}
+    .camera-feedback-detail{font-size:13px;line-height:1.35;max-width:320px;color:#e7efe9}
+    .camera-feedback.success{background:rgba(9,61,31,.90)}
+    .camera-feedback.success .camera-feedback-icon{color:#78ef99}
+    .camera-feedback.duplicate{background:rgba(91,57,7,.90)}
+    .camera-feedback.duplicate .camera-feedback-icon{color:#ffe08b}
+    .camera-feedback.error{background:rgba(103,22,27,.90)}
+    .camera-feedback.error .camera-feedback-icon{color:#ffc1c5}
+    .camera-feedback.pending{background:rgba(37,57,72,.90)}
+    .camera-feedback.pending .camera-feedback-icon{color:#d6e9fc}
+    @media(prefers-reduced-motion:reduce){.camera-feedback{transition:none}}
     .scan-hint{font-size:13px;line-height:1.5;color:#52687b;margin:10px 0 0}
     .camera-tools{margin-top:12px;background:#f5f8fa;border:1px solid #dde5ea;border-radius:10px;padding:12px}
     .camera-tools label{margin:0 0 8px}
@@ -57,7 +78,17 @@
   <section class="card" aria-labelledby="titulo-camara">
     <h2 id="titulo-camara">Lector con cámara</h2>
     <div id="estado" class="status" role="status" aria-live="polite">Cámara apagada. Presiona «Iniciar cámara».</div>
-    <div id="reader" aria-label="Vista de cámara del escáner"></div>
+    <div class="camera-stage">
+      <div id="reader" aria-label="Vista de cámara del escáner"></div>
+      <div id="cameraFeedback" class="camera-feedback" role="status" aria-live="assertive" aria-atomic="true">
+        <div class="camera-feedback-inner">
+          <span id="feedbackIcon" class="camera-feedback-icon" aria-hidden="true">✓</span>
+          <strong id="feedbackTitle" class="camera-feedback-title">Asistencia registrada</strong>
+          <span id="feedbackNomina" class="camera-feedback-nomina"></span>
+          <span id="feedbackDetail" class="camera-feedback-detail"></span>
+        </div>
+      </div>
+    </div>
     <p class="scan-hint">Alinea horizontalmente las barras del gafete dentro del recuadro ancho. Acércalo hasta que las líneas se distingan y evita reflejos.</p>
     <div id="cameraTools" class="camera-tools" hidden>
       <label for="zoomCamara">Acercamiento de cámara <span id="zoomValor">1×</span></label>
@@ -95,7 +126,7 @@
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 'use strict';
-/* Escáner ECO v1.1.2 — código de barras, foto y controles opcionales de cámara. */
+/* Escáner ECO v1.1.3 — confirmación visible y zoom automático con respaldo. */
 (function () {
   const $ = id => document.getElementById(id);
   const hash = new URLSearchParams(location.hash.substring(1));
@@ -142,6 +173,29 @@
   let scanner = null, running = false, busy = false, waiting = false;
   let last = '', lastAt = 0, ackTimer = null, lastMethod = 'CAMARA';
   let cameraStartedAt = 0, diagnosticShown = false;
+  let feedbackTimer = null, scanResumeAt = 0;
+  const ZOOM_KEY = 'EscanerECO:zoomCamara'; // Preferencia de cámara; nunca se guarda la nómina.
+  function feedback(tipo,nomina,detalle) {
+    const specs={
+      success:{icon:'✓',title:'¡Asistencia registrada!'},
+      duplicate:{icon:'!',title:'Asistencia ya registrada'},
+      error:{icon:'×',title:'No se registró'},
+      pending:{icon:'?',title:'Sin confirmar'}
+    };
+    if(!specs[tipo])return;
+    clearTimeout(feedbackTimer);
+    const overlay=$('cameraFeedback');
+    overlay.className='camera-feedback '+tipo;
+    $('feedbackIcon').textContent=specs[tipo].icon;
+    $('feedbackTitle').textContent=specs[tipo].title;
+    $('feedbackNomina').textContent=String(nomina||'');
+    $('feedbackDetail').textContent=String(detalle||'');
+    overlay.classList.add('show');
+    feedbackTimer=setTimeout(()=>overlay.classList.remove('show'),tipo==='success'?2100:2600);
+  }
+  function hideFeedback() {
+    clearTimeout(feedbackTimer);$('cameraFeedback').className='camera-feedback';
+  }
   function status(text, type='') { $state.className = 'status' + (type ? ' ' + type : ''); $state.textContent = text; }
   function result(text) { $result.textContent = text; }
   function valid(value) { const txt = String(value == null ? '' : value).trim().toUpperCase(); return ALLOWED.test(txt) ? txt : ''; }
@@ -150,6 +204,7 @@
     if (!nomina) { status('El código leído no es una nómina válida. Se permiten letras, números y guiones.','error'); return; }
     const now=Date.now();
     if (waiting) { if(force)status('Hay una lectura esperando confirmación.','warn');return; }
+    if(!force && now<scanResumeAt)return;
     if (!force && nomina === last && now-lastAt < 5000) return;
     last=nomina;lastAt=now;lastMethod=method;
     $code.textContent=nomina;$('copy').disabled=false;$('retry').disabled=false;
@@ -158,27 +213,38 @@
         pendiente(nomina);
         status('Lectura correcta, pero la aplicación no confirmó el registro. Copia la lista de pendientes.','warn');
         result('El navegador perdió la comunicación entre pestañas. No se registró automáticamente.');
+        feedback('pending',nomina,'La aplicación no confirmó la asistencia.');
       }else{
         status('Lectura correcta. Copia la nómina para utilizarla en tu aplicación.','ok');
         result('Modo independiente: no se ha enviado ningún dato a otra aplicación.');
+        // No mostrar una palomita verde en modo independiente: no existe registro confirmado.
+        feedback('pending',nomina,'Código reconocido, sin registro de asistencia.');
       }
       return;
     }
     waiting=true;status('Enviando lectura para validación…');result('Esperando respuesta de la aplicación vinculada.');
-    try { window.opener.postMessage({type:'ECO_LECTURA_GAFETE',channel:channel,nomina:nomina,source:'EscanerECO',version:'1.1.2',method:method},returnOrigin); }
-    catch (_) { waiting=false;pendiente(nomina);status('No fue posible comunicarse con la aplicación. Copia las pendientes.','warn');return; }
+    try { window.opener.postMessage({type:'ECO_LECTURA_GAFETE',channel:channel,nomina:nomina,source:'EscanerECO',version:'1.1.3',method:method},returnOrigin); }
+    catch (_) { waiting=false;pendiente(nomina);status('No fue posible comunicarse con la aplicación. Copia las pendientes.','warn');feedback('pending',nomina,'No se pudo confirmar el registro.');return; }
     clearTimeout(ackTimer);
-    ackTimer=setTimeout(()=>{if(waiting){waiting=false;pendiente(nomina);status('No llegó confirmación. Copia las nóminas pendientes y revisa el registro.','warn');result('Si el registro ya se realizó, la aplicación impedirá duplicados.');}},12000);
+    ackTimer=setTimeout(()=>{if(waiting){waiting=false;pendiente(nomina);status('No llegó confirmación. Copia las nóminas pendientes y revisa el registro.','warn');result('Si el registro ya se realizó, la aplicación impedirá duplicados.');feedback('pending',nomina,'Registro sin confirmar. No se contabiliza automáticamente.');}},12000);
   }
   window.addEventListener('message',event=>{
     if (!linked || event.source !== window.opener || event.origin !== returnOrigin) return;
     const data=event.data;
     if (!data || data.channel !== channel || data.type !== 'ECO_RESPUESTA_ASISTENCIA' || String(data.nomina||'') !== last) return;
+    if(!waiting)return; // Ignorar respuestas tardías posteriores a un timeout o a otra lectura.
     waiting=false;clearTimeout(ackTimer);
-    if(data.ok)confirmado(last);else pendiente(last);
-    status(data.texto || (data.ok ? 'Registro confirmado.':'Lectura no registrada.'),data.ok?'ok':'warn');
-    result(data.ok ? 'La aplicación confirmó el registro.':'La aplicación respondió. Verifica el resultado.');
-    if (data.ok && typeof navigator.vibrate === 'function') navigator.vibrate(110);
+    const validada=data.ok===true;
+    const duplicada=validada&&data.duplicada===true;
+    if(validada)confirmado(last);else pendiente(last);
+    const detalle=String(data.texto || (duplicada?'Ya estaba registrada.':validada?'Asistencia registrada correctamente.':'La aplicación rechazó el registro.'));
+    const tipo=duplicada?'duplicate':validada?'success':'error';
+    status(detalle,validada&&!duplicada?'ok':'warn');
+    result(validada?(duplicada?'La asistencia ya existía; no se creó otro registro.':'Google Apps Script confirmó el nuevo registro.'):'La aplicación rechazó el registro. Verifica la inscripción.');
+    // La palomita sólo aparece tras confirmar una asistencia NUEVA.
+    feedback(tipo,last,detalle);
+    scanResumeAt=Date.now()+1900; // Dejar visible la respuesta sin interrumpir la cámara.
+    if(validada&&!duplicada&&typeof navigator.vibrate==='function')navigator.vibrate(110);
   });
   // Se conserva el soporte de formatos de la versión anterior.
   function newDecoder(element) {
@@ -219,10 +285,32 @@
     const z=cap.zoom;
     if(z && Number.isFinite(z.min)&&Number.isFinite(z.max)&&z.max>z.min){
       const input=$('zoomCamara');
-      input.min=String(z.min);input.max=String(z.max);input.step=String(z.step>0?z.step:0.1);
+      const step=Number.isFinite(z.step)&&z.step>0?z.step:0.1;
+      input.min=String(z.min);input.max=String(z.max);input.step=String(step);
       let current=z.min;
       try{const value=scanner.getRunningTrackSettings?.().zoom;if(Number.isFinite(value))current=value;}catch(_){}
-      input.value=String(Math.min(z.max,Math.max(z.min,current)));
+      // Ajuste inicial moderado: ~1.8×; si el operador ajustó el zoom previamente,
+      // preferir ese valor la próxima vez. Se conserva sólo una preferencia local.
+      let desired=1.8;
+      try{
+        const saved=localStorage.getItem(ZOOM_KEY);
+        if(saved!==null && Number.isFinite(Number(saved)))desired=Number(saved);
+      }catch(_){}
+      desired=Math.max(z.min,Math.min(z.max,desired));
+      desired=Math.max(z.min,Math.min(z.max,z.min+Math.round((desired-z.min)/step)*step));
+      let applied=false;
+      if(typeof scanner.applyVideoConstraints==='function'){
+        try{await scanner.applyVideoConstraints({advanced:[{zoom:desired}]});applied=true;}catch(_){}
+      }
+      if(applied){
+        let actual=desired;
+        try{
+          const setting=scanner.getRunningTrackSettings?.().zoom;
+          if(Number.isFinite(setting))actual=setting;
+        }catch(_){}
+        current=actual;
+      }
+      input.value=String(Math.max(z.min,Math.min(z.max,current)));
       $('zoomValor').textContent=Number(input.value).toFixed(1)+'×';
       $('cameraTools').hidden=false;
     }
@@ -234,7 +322,7 @@
       try{if(running)await scanner.stop();}catch(_){}
       try{scanner.clear();}catch(_){}
     }
-    scanner=null;running=false;$('start').disabled=false;
+    scanner=null;running=false;$('start').disabled=false;hideFeedback();scanResumeAt=0;
     if(showMessage)status('Cámara detenida. Puedes volver a iniciarla.');
   }
   async function start() {
@@ -295,6 +383,7 @@
     try{
       await scanner.applyVideoConstraints({advanced:[{zoom:value}]});
       $('zoomValor').textContent=value.toFixed(1)+'×';
+      try{localStorage.setItem(ZOOM_KEY,String(value));}catch(_){}
     }catch(_){status('Tu navegador no permitió ajustar el zoom. La cámara sigue disponible.','warn');}
   });
   $('manual').addEventListener('submit',e=>{e.preventDefault();reading($('nomina').value,true,'MANUAL');});
